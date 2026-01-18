@@ -38,6 +38,16 @@ def main():
         type=Path,
         help="Process a single file instead of scanning directory",
     )
+    parser.add_argument(
+        "--no-translation",
+        action="store_true",
+        help="Disable English to Chinese translation",
+    )
+    parser.add_argument(
+        "--no-pdf",
+        action="store_true",
+        help="Disable PDF generation",
+    )
     args = parser.parse_args()
     
     print("=" * 60)
@@ -58,10 +68,16 @@ def main():
         config.output_dir = args.dir
     if args.model:
         config.model_size = args.model
+    if args.no_translation:
+        config.enable_translation = False
+    if args.no_pdf:
+        config.generate_pdf = False
     
     print(f"Watch directory: {config.watch_dir}")
     print(f"Model: {config.model_size}")
     print(f"Device: {config.device} ({config.compute_type})")
+    print(f"Translation: {'✓ Enabled' if config.enable_translation else '✗ Disabled'}")
+    print(f"PDF Export: {'✓ Enabled' if config.generate_pdf else '✗ Disabled'}")
     print()
     
     # Get files to process
@@ -88,7 +104,13 @@ def main():
         try:
             timestamp = datetime.now()
             result = transcribe_audio(audio_path, config)
-            save_markdown(result, config.output_dir, timestamp)
+            save_markdown(
+                result, 
+                config.output_dir, 
+                timestamp,
+                enable_translation=config.enable_translation,
+                generate_pdf=config.generate_pdf,
+            )
             success_count += 1
         except Exception as e:
             print(f"❌ Error processing {audio_path.name}: {e}")

@@ -20,6 +20,8 @@ class Config:
     max_speakers: Optional[int]
     device: str
     compute_type: str
+    enable_translation: bool = True  # Enable English to Chinese translation
+    generate_pdf: bool = True  # Generate PDF alongside Markdown
 
     def __post_init__(self):
         # Ensure directories exist
@@ -53,6 +55,10 @@ def load_config(env_path: Optional[Path] = None) -> Config:
     # Auto-detect device and compute type
     device, compute_type = detect_device()
     
+    # Translation and PDF settings
+    enable_translation = os.getenv("ENABLE_TRANSLATION", "true").lower() in ("true", "1", "yes")
+    generate_pdf = os.getenv("GENERATE_PDF", "true").lower() in ("true", "1", "yes")
+    
     return Config(
         hf_token=hf_token,
         watch_dir=watch_dir,
@@ -62,6 +68,8 @@ def load_config(env_path: Optional[Path] = None) -> Config:
         max_speakers=max_speakers,
         device=device,
         compute_type=compute_type,
+        enable_translation=enable_translation,
+        generate_pdf=generate_pdf,
     )
 
 

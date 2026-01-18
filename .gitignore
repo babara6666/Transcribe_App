@@ -52,6 +52,11 @@ Thumbs.db
 # Output Files
 *.md
 !README.md
+!DEPENDENCIES.md
+!INSTALL.md
+
+# PDF outputs
+*.pdf
 
 # Model Cache
 .cache/
@@ -59,3 +64,7 @@ models/
 
 # Logs
 *.log
+
+# Test files
+test_*.py
+*_test.py

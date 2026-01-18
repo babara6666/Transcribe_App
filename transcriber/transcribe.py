@@ -66,6 +66,7 @@ def transcribe_audio(audio_path: Path, config: Config) -> TranscriptResult:
     Transcribe audio file with speaker diarization.
     
     Steps:
+    0. Convert to M4A if needed (auto-detect format)
     1. Load WhisperX model
     2. Transcribe and detect language
     3. Align timestamps at word level
@@ -75,10 +76,27 @@ def transcribe_audio(audio_path: Path, config: Config) -> TranscriptResult:
     
     import whisperx
     import gc
+    from .audio_converter import convert_to_m4a, is_supported_audio
     
     print(f"\n{'='*60}")
     print(f"Processing: {audio_path.name}")
     print(f"{'='*60}")
+    
+    # Step 0: Convert to M4A if needed
+    original_path = audio_path
+    if audio_path.suffix.lower() != ".m4a":
+        if not is_supported_audio(audio_path):
+            raise ValueError(f"Unsupported audio format: {audio_path.suffix}")
+        
+        try:
+            # Convert to M4A (will be saved in the same directory)
+            audio_path = convert_to_m4a(
+                audio_path,
+                keep_original=True  # Keep original file
+            )
+        except Exception as e:
+            print(f"❌ Audio conversion failed: {e}")
+            raise
     
     # Step 1: Load model
     print(f"Loading WhisperX model ({config.model_size}) on {config.device}...")
@@ -104,26 +122,29 @@ def transcribe_audio(audio_path: Path, config: Config) -> TranscriptResult:
     if config.device == "cuda":
         torch.cuda.empty_cache()
     
-    # Step 3: Align timestamps
+    # Step 3: Align timestamps (optional, may fail for some languages)
     print("Aligning timestamps...")
-    model_a, metadata = whisperx.load_align_model(
-        language_code=detected_language,
-        device=config.device,
-    )
-    result = whisperx.align(
-        result["segments"],
-        model_a,
-        metadata,
-        audio,
-        config.device,
-        return_char_alignments=False,
-    )
-    
-    # Free up memory from alignment model
-    del model_a
-    gc.collect()
-    if config.device == "cuda":
-        torch.cuda.empty_cache()
+    try:
+        model_a, metadata = whisperx.load_align_model(
+            language_code=detected_language,
+            device=config.device,
+        )
+        result = whisperx.align(
+            result["segments"],
+            model_a,
+            metadata,
+            audio,
+            config.device,
+            return_char_alignments=False,
+        )
+        # Free up memory from alignment model
+        del model_a
+        gc.collect()
+        if config.device == "cuda":
+            torch.cuda.empty_cache()
+    except Exception as e:
+        print(f"⚠ Alignment skipped (model not available): {e}")
+        print("  Continuing without word-level alignment...")
     
     # Step 4: Speaker diarization
     print("Running speaker diarization...")
@@ -168,7 +189,7 @@ def transcribe_audio(audio_path: Path, config: Config) -> TranscriptResult:
     print(f"✓ Transcription complete: {len(merged_segments)} segments")
     
     return TranscriptResult(
-        audio_path=audio_path,
+        audio_path=original_path,  # Use original path for output filename
         language=detected_language,
         segments=merged_segments,
     )
