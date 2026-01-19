@@ -68,80 +68,109 @@ def save_markdown(
 
 
 def markdown_to_pdf(markdown_content: str, output_path: Path) -> None:
-    """Convert Markdown content to PDF with CJK font support using fpdf2."""
-    from fpdf import FPDF
-    import re
+    """Convert Markdown content to PDF with CJK font support using WeasyPrint."""
+    import markdown as md_lib
+    from weasyprint import HTML
+    from weasyprint.text.fonts import FontConfiguration
     
-    # Try to load CJK font
-    font_name = 'Arial'  # Default fallback
+    # Convert Markdown to HTML
+    html_content = md_lib.markdown(
+        markdown_content,
+        extensions=['tables', 'fenced_code', 'nl2br']
+    )
     
-    class PDF(FPDF):
-        def header(self):
-            pass
+    # Build complete HTML with embedded CSS
+    full_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {{
+            size: A4;
+            margin: 2cm;
+        }}
         
-        def footer(self):
-            self.set_y(-15)
-            self.set_font(font_name, '', 8)
-            self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
-    
-    # Create PDF
-    pdf = PDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    
-    # Try to load CJK font
-    try:
-        # Try Microsoft JhengHei (繁體中文)
-        pdf.add_font('CJK', '', r'C:\Windows\Fonts\msjh.ttc', uni=True)
-        pdf.add_font('CJK', 'B', r'C:\Windows\Fonts\msjhbd.ttc', uni=True)
-        font_name = 'CJK'
-    except:
-        try:
-            # Try SimSun (簡體中文)
-            pdf.add_font('CJK', '', r'C:\Windows\Fonts\simsun.ttc', uni=True)
-            pdf.add_font('CJK', 'B', r'C:\Windows\Fonts\simhei.ttf', uni=True)
-            font_name = 'CJK'
-        except:
-            # Use Arial as fallback
-            font_name = 'Arial'
-    
-    pdf.add_page()
-    
-    # Parse Markdown and add to PDF
-    lines = markdown_content.split('\n')
-    
-    for line in lines:
-        line = line.strip()
+        body {{
+            font-family: "Noto Sans TC", "Microsoft JhengHei", "微軟正黑體", sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #333;
+        }}
         
-        if not line:
-            pdf.ln(5)
-            continue
+        h1 {{
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-top: 30px;
+            font-size: 24pt;
+        }}
         
-        # Title (# heading)
-        if line.startswith('# '):
-            pdf.set_font(font_name, 'B', 16)
-            pdf.multi_cell(0, 10, line[2:])
-            pdf.ln(5)
+        h2 {{
+            color: #34495e;
+            border-bottom: 2px solid #95a5a6;
+            padding-bottom: 8px;
+            margin-top: 25px;
+            font-size: 18pt;
+        }}
         
-        # Separator
-        elif line == '---':
-            pdf.ln(3)
-            pdf.set_draw_color(200, 200, 200)
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.ln(5)
+        h3 {{
+            color: #2980b9;
+            margin-top: 20px;
+            font-size: 16pt;
+            page-break-after: avoid;
+        }}
         
-        # Bold text (speaker lines)
-        elif line.startswith('**') and '**' in line[2:]:
-            pdf.set_font(font_name, 'B', 11)
-            # Remove ** markers
-            clean_line = re.sub(r'\*\*([^*]+)\*\*', r'\1', line)
-            pdf.multi_cell(0, 7, clean_line)
+        p {{
+            margin: 8px 0;
+        }}
         
-        # Regular text
-        else:
-            pdf.set_font(font_name, '', 11)
-            pdf.multi_cell(0, 7, line)
+        strong {{
+            color: #2c3e50;
+        }}
+        
+        blockquote {{
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+            margin: 10px 0;
+            color: #555;
+            font-style: italic;
+            background-color: #f8f9fa;
+            padding: 10px 15px;
+        }}
+        
+        hr {{
+            border: none;
+            border-top: 1px solid #ddd;
+            margin: 20px 0;
+        }}
+        
+        code {{
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "Courier New", monospace;
+            font-size: 10pt;
+        }}
+        
+        pre {{
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            page-break-inside: avoid;
+        }}
+    </style>
+</head>
+<body>
+    {html_content}
+    <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #ddd; text-align: center; color: #7f8c8d; font-size: 9pt;">
+        <p>Auto-generated transcript</p>
+    </div>
+</body>
+</html>
+"""
     
-    # Save PDF
-    pdf.output(str(output_path))
-
-
+    # Configure fonts and generate PDF
+    font_config = FontConfiguration()
+    HTML(string=full_html).write_pdf(str(output_path), font_config=font_config)
