@@ -38,6 +38,7 @@ class Segment:
     start: float
     end: float
     text: str
+    translation: Optional[str] = None  # Chinese translation for English segments
 
 
 @dataclass
@@ -118,6 +119,7 @@ def transcribe_audio(
     overlap_duration: int = 0,  # seconds overlap between chunks
     allowed_languages: tuple = ("zh", "en"),  # only allow these languages
     enhance_audio: bool = True,  # apply audio enhancement (default: on)
+    translate_english: bool = True,  # translate English segments to Chinese (default: on)
 ) -> TranscriptResult:
     """
     Transcribe audio file with speaker diarization.
@@ -125,10 +127,11 @@ def transcribe_audio(
     Args:
         audio_path: Path to audio file
         config: Configuration object
-        chunk_duration: Duration of each chunk in seconds (default 60s)
-        overlap_duration: Overlap between chunks in seconds (default 5s)
+        chunk_duration: Duration of each chunk in seconds (default 180s)
+        overlap_duration: Overlap between chunks in seconds (default 0s)
         allowed_languages: Tuple of allowed language codes (default: Chinese, English)
-        enhance_audio: Apply noise reduction and normalization (default: False)
+        enhance_audio: Apply noise reduction and normalization (default: True)
+        translate_english: Translate English segments to Chinese (default: True)
     
     Steps:
     0. (Optional) Enhance audio quality
@@ -137,6 +140,7 @@ def transcribe_audio(
     3. Align timestamps at word level
     4. Run speaker diarization
     5. Assign speakers to segments
+    6. (Optional) Translate English segments to Chinese
     """
     
     import whisperx
@@ -264,6 +268,39 @@ def transcribe_audio(
     merged_segments = merge_speaker_segments(segments)
     
     print(f"✓ Transcription complete: {len(merged_segments)} segments")
+    
+    # Step 6: Translate English segments (optional)
+    if translate_english:
+        # First, ensure all GPU memory is released
+        gc.collect()
+        if config.device == "cuda":
+            torch.cuda.empty_cache()
+        
+        from .translator import translate_segments, check_ollama_available
+        
+        if check_ollama_available():
+            # Convert to dict format for translation
+            seg_dicts = [
+                {'text': seg.text, 'speaker': seg.speaker, 'start': seg.start, 'end': seg.end}
+                for seg in merged_segments
+            ]
+            
+            # Translate English segments
+            translated_dicts = translate_segments(seg_dicts)
+            
+            # Update segments with translations
+            for i, seg_dict in enumerate(translated_dicts):
+                if 'translation' in seg_dict:
+                    merged_segments[i] = Segment(
+                        speaker=merged_segments[i].speaker,
+                        start=merged_segments[i].start,
+                        end=merged_segments[i].end,
+                        text=merged_segments[i].text,
+                        translation=seg_dict['translation'],
+                    )
+        else:
+            print("⚠ Ollama/TranslateGemma not available, skipping translation")
+            print("  Run: ollama pull translategemma:4b")
     
     return TranscriptResult(
         audio_path=audio_path,

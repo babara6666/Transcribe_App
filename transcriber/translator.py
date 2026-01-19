@@ -1,116 +1,124 @@
-"""Translation module for English to Chinese translation."""
+"""Translation service using TranslateGemma via Ollama."""
 
 import re
 from typing import Optional
-from deep_translator import GoogleTranslator
 
 
 def is_english_text(text: str, threshold: float = 0.5) -> bool:
     """
-    Check if text contains significant English content.
+    Detect if text is primarily English.
     
     Args:
-        text: Text to check
-        threshold: Minimum ratio of English characters to consider as English (0.0-1.0)
-    
+        text: Input text
+        threshold: Ratio of Latin characters to consider as English
+        
     Returns:
-        True if text is predominantly English
+        True if text is primarily English
     """
-    # Remove punctuation and whitespace
-    clean_text = re.sub(r'[^\w\s]', '', text)
-    if not clean_text.strip():
+    if not text or not text.strip():
         return False
     
-    # Count English letters (a-z, A-Z)
-    english_chars = len(re.findall(r'[a-zA-Z]', clean_text))
-    # Count Chinese characters
-    chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', clean_text))
+    # Count Latin letters (a-z, A-Z)
+    latin_chars = len(re.findall(r'[a-zA-Z]', text))
+    total_chars = len(re.findall(r'\S', text))  # Non-whitespace
     
-    total_chars = len(clean_text.replace(' ', ''))
     if total_chars == 0:
         return False
     
-    # If has English and ratio is above threshold
-    english_ratio = english_chars / total_chars
-    
-    # Consider as English if:
-    # 1. English ratio > threshold AND
-    # 2. English chars > Chinese chars
-    return english_ratio >= threshold and english_chars > chinese_chars
+    return (latin_chars / total_chars) >= threshold
 
 
-def translate_to_chinese(text: str, max_retries: int = 3) -> Optional[str]:
+def translate_text(text: str, source_lang: str = "en", target_lang: str = "zh") -> Optional[str]:
     """
-    Translate English text to Traditional Chinese.
+    Translate text using TranslateGemma via Ollama.
     
     Args:
         text: Text to translate
-        max_retries: Maximum number of retry attempts
-    
+        source_lang: Source language code (default: English)
+        target_lang: Target language code (default: Chinese)
+        
     Returns:
-        Translated text, or None if translation fails
+        Translated text or None if failed
     """
+    import ollama
+    
     if not text or not text.strip():
         return None
     
-    # Check if translation is needed
-    if not is_english_text(text):
-        return None
-    
     try:
-        translator = GoogleTranslator(source='en', target='zh-TW')
+        # TranslateGemma official prompt format
+        prompt = f"""You are a professional English (en) to Chinese (zh-Hant) translator. Your goal is to accurately convey the meaning and nuances of the original English text while adhering to Chinese grammar, vocabulary, and cultural sensitivities. Produce only the Traditional Chinese translation, without any additional explanations or commentary. Please translate the following English text into Traditional Chinese:
+
+
+{text}"""
         
-        # Handle long text by chunking (Google Translate has 5000 char limit)
-        max_chunk_size = 4500
-        if len(text) <= max_chunk_size:
-            # Translate directly
-            translated = translator.translate(text)
-            return translated
+        response = ollama.chat(
+            model='translategemma:4b',
+            messages=[{'role': 'user', 'content': prompt}],
+            options={'temperature': 0.3}
+        )
+        
+        # Handle both new (object) and old (dict) API formats
+        if hasattr(response, 'message'):
+            translated = response.message.content.strip()
         else:
-            # Split by sentences and translate in chunks
-            sentences = re.split(r'([.!?]+\s+)', text)
-            chunks = []
-            current_chunk = ""
-            
-            for sentence in sentences:
-                if len(current_chunk) + len(sentence) <= max_chunk_size:
-                    current_chunk += sentence
-                else:
-                    if current_chunk:
-                        chunks.append(current_chunk)
-                    current_chunk = sentence
-            
-            if current_chunk:
-                chunks.append(current_chunk)
-            
-            # Translate each chunk
-            translated_chunks = []
-            for chunk in chunks:
-                if chunk.strip():
-                    translated = translator.translate(chunk)
-                    translated_chunks.append(translated)
-            
-            return ' '.join(translated_chunks)
-    
+            translated = response['message']['content'].strip()
+        return translated
+        
     except Exception as e:
-        print(f"⚠ Translation failed: {e}")
+        print(f"    ⚠ Translation failed: {e}")
         return None
 
 
-def add_translation(text: str, indent: str = "  ") -> str:
+def translate_segments(segments: list, show_progress: bool = True) -> list:
     """
-    Add Chinese translation below English text if needed.
+    Translate English segments to Chinese.
     
     Args:
-        text: Original text
-        indent: Indentation for translation line
-    
+        segments: List of segment dicts with 'text' key
+        show_progress: Show translation progress
+        
     Returns:
-        Text with translation appended (if English detected), otherwise original text
+        Updated segments with 'translation' key for English segments
     """
-    translation = translate_to_chinese(text)
+    if show_progress:
+        print("Translating English segments...")
     
-    if translation:
-        return f"{text}\n{indent}*翻譯: {translation}*"
+    english_count = 0
+    translated_count = 0
     
-    return text
+    for i, seg in enumerate(segments):
+        text = seg.get('text', '')
+        
+        if is_english_text(text):
+            english_count += 1
+            translation = translate_text(text)
+            
+            if translation:
+                seg['translation'] = translation
+                translated_count += 1
+                if show_progress:
+                    print(f"  ✓ Translated segment {i+1}")
+    
+    if show_progress:
+        print(f"✓ Translation complete: {translated_count}/{english_count} English segments")
+    
+    return segments
+
+
+def check_ollama_available() -> bool:
+    """Check if Ollama server is running and model is available."""
+    try:
+        import ollama
+        response = ollama.list()
+        # New API returns objects with .models attribute
+        if hasattr(response, 'models'):
+            model_names = [m.model for m in response.models]
+        else:
+            # Fallback for old API (dict format)
+            model_names = [m.get('name', '') for m in response.get('models', [])]
+        return any('translategemma' in name for name in model_names)
+    except Exception as e:
+        print(f"  Ollama check failed: {e}")
+        return False
+

@@ -60,6 +60,11 @@ def main():
         action="store_true",
         help="Disable audio enhancement (noise reduction, normalization)",
     )
+    parser.add_argument(
+        "--no-translate",
+        action="store_true",
+        help="Disable English-to-Chinese translation",
+    )
     args = parser.parse_args()
     
     print("=" * 60)
@@ -117,6 +122,7 @@ def main():
                 chunk_duration=args.chunk_duration,
                 overlap_duration=args.overlap,
                 enhance_audio=not args.no_enhance,
+                translate_english=not args.no_translate,
             )
             save_markdown(result, config.output_dir, timestamp, generate_pdf=not args.no_pdf)
             success_count += 1

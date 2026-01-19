@@ -28,6 +28,11 @@ def format_markdown(result: TranscriptResult, timestamp: Optional[datetime] = No
         time_range = f"({format_time(segment.start)} - {format_time(segment.end)})"
         lines.append(f"**[{segment.speaker}]:** {time_range}")
         lines.append(segment.text)
+        
+        # Add translation if available (displayed as blockquote)
+        if hasattr(segment, 'translation') and segment.translation:
+            lines.append(f"> {segment.translation}")
+        
         lines.append("")
     
     return "\n".join(lines)
