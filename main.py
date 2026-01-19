@@ -38,6 +38,28 @@ def main():
         type=Path,
         help="Process a single file instead of scanning directory",
     )
+    parser.add_argument(
+        "--no-pdf",
+        action="store_true",
+        help="Disable PDF generation (only output Markdown)",
+    )
+    parser.add_argument(
+        "--chunk-duration",
+        type=int,
+        default=180,
+        help="Duration of each chunk in seconds (default: 180)",
+    )
+    parser.add_argument(
+        "--overlap",
+        type=int,
+        default=0,
+        help="Overlap between chunks in seconds (default: 0)",
+    )
+    parser.add_argument(
+        "--no-enhance",
+        action="store_true",
+        help="Disable audio enhancement (noise reduction, normalization)",
+    )
     args = parser.parse_args()
     
     print("=" * 60)
@@ -62,6 +84,8 @@ def main():
     print(f"Watch directory: {config.watch_dir}")
     print(f"Model: {config.model_size}")
     print(f"Device: {config.device} ({config.compute_type})")
+    print(f"Chunk: {args.chunk_duration}s (overlap: {args.overlap}s)")
+    print(f"PDF: {'Disabled' if args.no_pdf else 'Enabled'}")
     print()
     
     # Get files to process
@@ -87,8 +111,14 @@ def main():
     for audio_path in pending_files:
         try:
             timestamp = datetime.now()
-            result = transcribe_audio(audio_path, config)
-            save_markdown(result, config.output_dir, timestamp)
+            result = transcribe_audio(
+                audio_path, 
+                config,
+                chunk_duration=args.chunk_duration,
+                overlap_duration=args.overlap,
+                enhance_audio=not args.no_enhance,
+            )
+            save_markdown(result, config.output_dir, timestamp, generate_pdf=not args.no_pdf)
             success_count += 1
         except Exception as e:
             print(f"❌ Error processing {audio_path.name}: {e}")
