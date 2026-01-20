@@ -42,7 +42,9 @@ def format_markdown(result: TranscriptResult, timestamp: Optional[datetime] = No
         # Speaker label bold, timestamp separate
         lines.append(f"**[{segment.speaker}]**  {time_range}")
         lines.append("")
-        lines.append(segment.text)
+        # Convert main transcript text to traditional Chinese
+        text = convert_to_traditional(segment.text)
+        lines.append(text)
         lines.append("")
         
         # Add translation if available (displayed as blockquote with [翻譯]: prefix)
@@ -54,7 +56,9 @@ def format_markdown(result: TranscriptResult, timestamp: Optional[datetime] = No
         lines.append("---")
         lines.append("")
     
-    return "\n".join(lines)
+    # Convert entire output to traditional Chinese (catch any remaining simplified)
+    content = "\n".join(lines)
+    return convert_to_traditional(content)
 
 
 def save_markdown(
