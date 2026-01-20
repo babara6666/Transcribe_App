@@ -4,11 +4,24 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+try:
+    import opencc
+    _converter = opencc.OpenCC('s2twp')  # 簡體 → 繁體台灣用語
+except ImportError:
+    _converter = None
+
 from .transcribe import TranscriptResult, format_time
 
 
+def convert_to_traditional(text: str) -> str:
+    """Convert simplified Chinese to traditional Chinese (Taiwan)."""
+    if _converter is None:
+        return text
+    return _converter.convert(text)
+
+
 def format_markdown(result: TranscriptResult, timestamp: Optional[datetime] = None) -> str:
-    """Format transcription result as Markdown."""
+    """Format transcription result as Markdown with traditional Chinese conversion."""
     
     if timestamp is None:
         timestamp = datetime.now()
@@ -26,13 +39,19 @@ def format_markdown(result: TranscriptResult, timestamp: Optional[datetime] = No
     
     for segment in result.segments:
         time_range = f"({format_time(segment.start)} - {format_time(segment.end)})"
-        lines.append(f"**[{segment.speaker}]:** {time_range}")
+        # Speaker label bold, timestamp separate
+        lines.append(f"**[{segment.speaker}]**  {time_range}")
+        lines.append("")
         lines.append(segment.text)
+        lines.append("")
         
-        # Add translation if available (displayed as blockquote)
+        # Add translation if available (displayed as blockquote with [翻譯]: prefix)
         if hasattr(segment, 'translation') and segment.translation:
-            lines.append(f"> {segment.translation}")
+            translation = convert_to_traditional(segment.translation)
+            lines.append(f"> **[翻譯]:** {translation}")
+            lines.append("")
         
+        lines.append("---")
         lines.append("")
     
     return "\n".join(lines)
@@ -68,109 +87,41 @@ def save_markdown(
 
 
 def markdown_to_pdf(markdown_content: str, output_path: Path) -> None:
-    """Convert Markdown content to PDF with CJK font support using WeasyPrint."""
-    import markdown as md_lib
-    from weasyprint import HTML
-    from weasyprint.text.fonts import FontConfiguration
+    """Convert Markdown content to PDF with CJK font support using pypandoc + xelatex."""
+    import pypandoc
+    import tempfile
     
-    # Convert Markdown to HTML
-    html_content = md_lib.markdown(
-        markdown_content,
-        extensions=['tables', 'fenced_code', 'nl2br']
-    )
+    # Ensure Pandoc is available
+    try:
+        pypandoc.get_pandoc_version()
+    except OSError:
+        print("  Downloading Pandoc...")
+        pypandoc.download_pandoc()
     
-    # Build complete HTML with embedded CSS
-    full_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        @page {{
-            size: A4;
-            margin: 2cm;
-        }}
-        
-        body {{
-            font-family: "Noto Sans TC", "Microsoft JhengHei", "微軟正黑體", sans-serif;
-            font-size: 11pt;
-            line-height: 1.6;
-            color: #333;
-        }}
-        
-        h1 {{
-            color: #2c3e50;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 10px;
-            margin-top: 30px;
-            font-size: 24pt;
-        }}
-        
-        h2 {{
-            color: #34495e;
-            border-bottom: 2px solid #95a5a6;
-            padding-bottom: 8px;
-            margin-top: 25px;
-            font-size: 18pt;
-        }}
-        
-        h3 {{
-            color: #2980b9;
-            margin-top: 20px;
-            font-size: 16pt;
-            page-break-after: avoid;
-        }}
-        
-        p {{
-            margin: 8px 0;
-        }}
-        
-        strong {{
-            color: #2c3e50;
-        }}
-        
-        blockquote {{
-            border-left: 4px solid #3498db;
-            padding-left: 15px;
-            margin: 10px 0;
-            color: #555;
-            font-style: italic;
-            background-color: #f8f9fa;
-            padding: 10px 15px;
-        }}
-        
-        hr {{
-            border: none;
-            border-top: 1px solid #ddd;
-            margin: 20px 0;
-        }}
-        
-        code {{
-            background-color: #f4f4f4;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: "Courier New", monospace;
-            font-size: 10pt;
-        }}
-        
-        pre {{
-            background-color: #f4f4f4;
-            padding: 15px;
-            border-radius: 5px;
-            overflow-x: auto;
-            page-break-inside: avoid;
-        }}
-    </style>
-</head>
-<body>
-    {html_content}
-    <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #ddd; text-align: center; color: #7f8c8d; font-size: 9pt;">
-        <p>Auto-generated transcript</p>
-    </div>
-</body>
-</html>
-"""
+    # Write markdown to temp file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
+        f.write(markdown_content)
+        temp_md = f.name
     
-    # Configure fonts and generate PDF
-    font_config = FontConfiguration()
-    HTML(string=full_html).write_pdf(str(output_path), font_config=font_config)
+    try:
+        # PDF engine settings for CJK support
+        extra_args = [
+            '--pdf-engine=xelatex',
+            '-V', 'CJKmainfont=Microsoft JhengHei',  # 微軟正黑體
+            '-V', 'geometry:margin=2cm',
+            '-V', 'fontsize=11pt',
+            '-V', 'documentclass=article',
+            '--highlight-style=tango',
+        ]
+        
+        pypandoc.convert_file(
+            temp_md,
+            'pdf',
+            outputfile=str(output_path),
+            extra_args=extra_args
+        )
+    finally:
+        # Cleanup temp file
+        import os
+        os.unlink(temp_md)
+

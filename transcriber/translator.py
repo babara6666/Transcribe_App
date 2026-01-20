@@ -107,7 +107,13 @@ def translate_segments(segments: list, show_progress: bool = True) -> list:
 
 
 def check_ollama_available() -> bool:
-    """Check if Ollama server is running and model is available."""
+    """Check if Ollama server is running and model is available. Auto-starts if needed."""
+    # Try to start Ollama first
+    if not _is_ollama_running():
+        print("  Starting Ollama server...")
+        if not start_ollama():
+            return False
+    
     try:
         import ollama
         response = ollama.list()
@@ -121,4 +127,49 @@ def check_ollama_available() -> bool:
     except Exception as e:
         print(f"  Ollama check failed: {e}")
         return False
+
+
+def _is_ollama_running() -> bool:
+    """Check if Ollama server is already running."""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            s.connect(('127.0.0.1', 11434))
+            return True
+    except (socket.error, socket.timeout):
+        return False
+
+
+def start_ollama() -> bool:
+    """Start Ollama server in background."""
+    import subprocess
+    import time
+    
+    try:
+        # Start Ollama serve in background
+        subprocess.Popen(
+            ['ollama', 'serve'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+        )
+        
+        # Wait for server to be ready (max 10 seconds)
+        for _ in range(20):
+            time.sleep(0.5)
+            if _is_ollama_running():
+                print("  ✓ Ollama server started")
+                return True
+        
+        print("  ⚠ Ollama server failed to start in time")
+        return False
+        
+    except FileNotFoundError:
+        print("  ⚠ Ollama not installed. Download from: https://ollama.com/download")
+        return False
+    except Exception as e:
+        print(f"  ⚠ Failed to start Ollama: {e}")
+        return False
+
 
